@@ -107,6 +107,76 @@ Our results with the current data: Earth 340 m/s, Venus 412, Mars 228, Titan 198
 
 ---
 
+## Step 2 — Better visuals & cinematic flights ✅
+
+We removed the fact panel (`InfoPanel.tsx`) so the experience is all about the view and the motion. The facts aren't lost: they're still in `bodies.ts`, and `physics.ts` stays for the sound engine.
+
+### What changed
+| File | What it does now |
+|---|---|
+| `visuals.ts` *(new)* | Paints every surface in code, plus Saturn's ring bands, the Sun's glow, atmosphere halos, and real axial tilts. |
+| `AsteroidBelt.tsx` *(new)* | 2,500 rocks between Mars and Jupiter. |
+| `CameraRig.tsx` | Rewritten. Flights arc, ease in and out, and arrive on the sunlit side. |
+| `CelestialBody.tsx` | Uses the textures, glow, tilt, and rings. Highlights the selected orbit. |
+| `App.tsx` | No panel. Just the body's name, a moon bar, a time-speed slider, and keyboard controls. |
+| `store.ts` | Adds `speed` (time multiplier). |
+
+### Idea 1: painting textures with `<canvas>` (`visuals.ts`)
+A **texture** is an image wrapped around a 3D shape. A sphere's texture is a 2:1 rectangle, the same way a world map unrolls a globe. Instead of downloading photos, we draw on an invisible HTML `<canvas>`:
+- **Gas giants** get stripes from adding three sine waves together: `sin(y·f₁) + sin(y·f₂) + sin(y·f₃)`. Each wave alone is too regular, but the sum looks natural.
+- **Rocky worlds** get about 1,400 soft blobs. `rand() ** 3` makes most blobs tiny and a few huge, which is how craters and terrain are actually distributed.
+- **Seeded randomness:** `seeded(hashString('mars'))` gives the same "random" numbers every time, so Mars doesn't reshuffle on reload.
+- **Seam fix:** every blob is drawn three times (shifted left, normal, shifted right) so blobs at the edge wrap around without a visible line.
+
+### Idea 2: a shader for the atmosphere glow
+A **shader** is a tiny program that runs on the graphics card, once for every pixel, in parallel. Ours checks how much each point on a slightly larger sphere faces you:
+```glsl
+float rim = 1.0 - dot(normal, toCamera); // 0 facing you, 1 at the edge
+```
+At the edge of a planet you look through the most air, so that's where it glows. Thicker air (Venus) gives a stronger glow; Mars is faint. That's real physics showing up visually.
+
+### Idea 3: the flight path (`CameraRig.tsx`)
+- **Bézier curve:** start point → raised midpoint → end point. The camera follows the curve, so it swoops over instead of flying through the Sun.
+- **Easing:** `easeInOutCubic` turns steady progress (0→1) into slow → fast → slow. Compare it with the old version, which jumped off fast and crawled to a stop.
+- **Look-ahead:** the camera's gaze reaches the destination at 55% of the flight (`progress * 1.8`), like turning your head before you walk.
+- **Moving target:** the end point is recomputed every frame, because the planet keeps orbiting while you fly.
+- **Sunlit arrival:** we point from the planet toward the Sun and rotate about 35°, so you see day, night, and the line between them.
+
+### Idea 4: one object for 2,500 asteroids
+2,500 separate meshes would mean 2,500 draw calls, which is slow. A `points` object sends all the positions to the graphics card in one `Float32Array` (x, y, z, x, y, z, …): one draw call.
+
+### Try it yourself
+1. In `CameraRig.tsx`, change `sideways * 0.25` to `sideways * 1`. Huge swoops! Then try `0`: straight lines.
+2. Replace `easeInOutCubic(f.progress)` with just `f.progress`. Feel how robotic linear motion is?
+3. In `visuals.ts`, change Jupiter's band contrast (`jupiter: 0.35`) to `1`.
+4. Change `AXIAL_TILT_DEG.earth` to `90` and watch Earth roll like Uranus.
+
+---
+
+## Step 3 — Bug hunt + text cards ✅
+
+### Bugs found and fixed
+We built the app and took screenshots at every stop to find these.
+
+| Bug | Why it happened | Fix |
+|---|---|---|
+| Clicking the Sun showed a 2nd bar with every planet | The moon bar shows "things orbiting the selected body". Everything orbits the Sun! | Only planets show moons, and moons now sit *inside* the one main bar. |
+| Camera ended up inside Jupiter/Earth when visiting a moon | Moons orbit close to their planet, and Io laps Jupiter every ~8 s. The camera only *slid* along with the moon, so the moon swung around and left the camera inside the planet. | The camera now also *turns* with the moon around its planet (`orbitAngle` in `CameraRig.tsx`), and always starts on the outside of the orbit. |
+| Atmospheres looked like glass bubbles | We drew the front of the glow sphere, which has a hard edge. | Draw the *inside* (back faces) and fade to zero at the edge. The glow is also dimmer on the night side. |
+| Asteroids were big squares up close | Points draw as squares by default. | A round, soft dot image. |
+| Orbit lines became thick gray stripes up close | They were thin 3D rings, so the closer you got, the thicker they looked. | drei's `<Line>`, which is always 1 screen pixel wide. |
+| Page froze (found while fixing) | Blurring 6,000 shapes one at a time. | Draw them all, then blur the finished layer once. |
+| Ice caps had a "starburst" at the poles | The top row of a flat map squeezes into one point on a sphere. | Solid bands with a wobbly edge lower down. |
+
+Lesson: **look at your app**. Every one of these was obvious in a screenshot and invisible in the code.
+
+### The text cards
+- **`src/data/content.ts`**: one entry per body with four sections (Overview, Standing here, Fun fact, Sources). Every one starts as `PLACEHOLDER`. This is Ahmed and Noah's file. They only edit text between quotes.
+- **`src/components/InfoCard.tsx`**: shows the card. Any section still equal to `PLACEHOLDER` gets a dashed box, so it's obvious what's left to write.
+- Why a separate file? **Separation of content and code.** Writers can't break the 3D code by editing words, and you can't accidentally delete their writing while changing layouts.
+
+---
+
 ## Coming next
 
 - **Step 2: Surface view.** Click "Land" to stand on the body: sky color, Sun size from that distance, horizon. Real texture maps.
